@@ -1,56 +1,87 @@
-; Program Başlangıcı
-START: IN 00h              ; Port 00'den işlem seçimini oku
-    CPI 00h             ; Seçim 0 mı?
-    JZ POWER_CALC       ; Eğer 0 ise üs hesaplamaya git
-    CPI 01h             ; Seçim 1 mi?
-    JZ CLOSEST_SQRT     ; Eğer 1 ise karekök hesaplamaya git
-    JMP START           ; Geçersiz seçim varsa başa dön
+start: IN 00h           ; İşlem kodunu oku
+    MOV B, A         ; Kodu B register'ine kaydet
+    MOV A, B         ; Kodu A'ya yükle
+    CPI 00h          ; 0 mı kontrol et
+    JZ CALC_POWER    ; 0 ise kuvvet hesapla
+    MOV A, B         ; İşlem kodunu A'ya yükle 
+    CPI 01h          ; 1 mi kontrol et
+    JZ FIND_SQUARE   ; 1 ise kareyi bul
+    JMP END          ; Geçersiz işlem kodu, sonlandır
 
-; En yüksek 8-bit gücü hesaplama
-POWER_CALC: IN 01h              ; Port 01'den sayıyı oku
-    MOV B, A            ; Sayıyı B'ye aktar
-    MVI C, 1            ; Üs değerini 1 olarak başlat
-    MVI D, 1            ; Sonuç başlangıçta 1 (B^0)
+CALC_POWER: IN 01h   ; Girdi sayısını al
+    MOV C, A         ; Sayıyı C'ye kaydet
+    MVI A, 01h       ; Başlangıç değeri 1
+    MOV L, A         ; Sonuç için L register'ini ayarla
+    MVI D, 00h       ; Kuvvet sayısını sıfırla
 
-POWER_LOOP: MOV A, D            ; Sonucu A'ya al
-    MOV E, B            ; Sayıyı E'ye kopyala
-    CALL SQUARE         ; Sayının karesini hesapla
-    MOV D, A            ; Çarpım sonucu D'ye geri koy
-    CPI 256             ; 8 bit sınırını kontrol et
-    JC NEXT_POWER       ; 256'dan küçükse bir sonraki üssü dene
-    JMP OUTPUT_POWER    ; 256'yı geçerse önceki üssü kullan
+POWER_LOOP: MOV A, L ; Mevcut sonucu A'ya al
+    XRA A            ; A'yı sıfırla
+    MOV E, C         ; Sayıyı E'ye kaydet
+    CALL MULTIPLY    ; Çarpma işlemini gerçekleştir
 
-NEXT_POWER: INR C               ; Üs sayacını artır
-    JMP POWER_LOOP      ; Döngüye geri dön
+POWER_CONT: INR D     ; Kuvvet sayısını bir artır
+    JMP POWER_LOOP    ; Döngüye geri dön
 
-OUTPUT_POWER: DCR C               ; Üs değeri 1 eksiltilir (geçerli üs)
-    MOV A, C            ; Son geçerli üs A'ya aktarılır
-    OUT 02h             ; Port 02'ye sonucu gönder
-    JMP START           ; Başlangıca dön
+DONE_POWER: MOV A, D  ; Kuvvet değerini A'ya yükle
+    OUT 02h           ; Sonucu 02h portuna gönder
+    JMP END           ; Sonlandır
 
-; En yakın karekök hesaplama
-CLOSEST_SQRT: IN 01h              ; Port 01'den sayıyı oku
-    MOV C, A            ; Sayıyı C'ye aktar
-    MVI B, 1            ; Kareköke en yakın sayıyı başlat
+FIND_SQUARE: IN 01h   ; Hedef sayıyı al
+    MOV C, A          ; Hedefi C'ye kaydet
+    MVI B, 00h        ; İlk tahmin 0
+    MVI D, 00h        ; İkinci tahmin için D'yi sıfırla
 
-SQRT_LOOP: MOV A, B            ; Aday sayıyı A'ya al
-    CALL SQUARE         ; A = B * B ile kare hesapla
-    CMP C               ; Kareyi C ile karşılaştır
-    JC INCREMENT        ; Küçükse devam et
-    JZ OUTPUT_SQRT      ; Eşitse karekök bulundu
+SQUARE_LOOP: MOV A, B  ; İlk tahmini A'ya al
+    MOV L, A          ; A'yı L'ye kopyala
+    XRA A             ; A'yı sıfırla
+    MOV E, L          ; Tahmini E'ye aktar
+    CALL SQUARE       ; Kare hesapla
 
-    DCR B               ; Son karekök adayına geri dön
-    JMP OUTPUT_SQRT     ; En yakın karekök adayını çıkış yap
+FOUND_SQUARE: MOV A, B ; Tahmini A'ya al
+    OUT 02h           ; Sonucu 02h portuna gönder
+    JMP END           ; Sonlandır
 
-INCREMENT: INR B               ; Kareköke en yakın aday artır
-    JMP SQRT_LOOP       ; Döngüye geri dön
+CHECK_SQUARE: MOV D, B ; İkinci tahmini D'ye kaydet
+    DCR B             ; Önceki tahmini bir azalt
+    MOV A, B          ; A'ya tahmini yükle
+    MOV L, A          ; L'ye kopyala
+    XRA A             ; A'yı sıfırla
+    MOV E, L          ; E'ye aktar
+    CALL SQUARE_2     ; Kare hesapla
 
-OUTPUT_SQRT: MOV A, B            ; Kareköke en yakın sayı A'ya al
-    OUT 02h             ; Port 02'ye sonucu gönder
-    JMP START           ; Başlangıca dön
+GUESSES: MOV A, B   ; İlk tahmini A'ya al
+    OUT 02h           ; Sonucu 02h portuna gönder
+    MOV A, D          ; İkinci tahmini A'ya al
+    OUT 03h           ; Sonucu 03h portuna gönder
+    JMP END           ; Sonlandır
 
-; Kare Alma Alt Programı
-SQUARE: MOV A, E            ; Sayıyı A'ya yükle
-    MOV H, A            ; A'nın bir kopyasını H'ye koy
-    ADD H               ; A = A + H (kendi kendisiyle çarpma)
-    RET                 ; Kareyi A'da döndür
+MULTIPLY: ADD L         ; Sonucu güncelle
+    DCR E                ; Sayacı bir azalt
+    JNZ MULTIPLY         ; Devam et
+    MOV L, A             ; Yeni sonucu L'ye yaz
+    JNC POWER_CONT       ; Taşma yoksa devam et
+    JMP DONE_POWER       ; Taşma varsa sonucu gönder
+
+SQUARE: ADD L   ; Kendisiyle çarp
+    DCR E             ; Sayacı bir azalt
+    JNZ SQUARE        ; Devam et
+
+    CMP C             ; Hesaplanan kareyi hedefle karşılaştır
+    JZ FOUND_SQUARE   ; Eşitse sonucu bul
+    JP CHECK_SQUARE   ; Büyükse kontrol et
+
+    INR B             ; Tahmini bir artır
+    JMP SQUARE_LOOP   ; Döngüye geri dön
+
+SQUARE_2: ADD L  ; Kendisiyle çarp
+    DCR E             ; Sayacı bir azalt
+    JNZ SQUARE_2      ; Devam et
+
+    CMP C             ; Hesaplanan kareyi kontrol et
+    JZ GUESSES     ; Eşitse iki tahmin var
+
+    MOV A, B          ; İlk tahmini A'ya al
+    OUT 02h           ; Sonucu 02h portuna gönder
+    JMP END           ; Sonlandır
+
+END: hlt                 ; Programı sonlandır
